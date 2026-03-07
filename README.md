@@ -29,7 +29,11 @@ Early development. Host-side sync is functional.
 
 ## Roadmap
 
+**Host**
 - Exclusion list management UI
 - Auto-start on boot
-- Additional launcher support (Epic Games, GOG, etc.)
-- Client application
+- Epic Games library sync (next planned launcher)
+- Additional launcher support (GOG, Xbox Game Pass, etc.)
+
+**Client**
+- A dedicated game launcher that presents your synced library and launches games via Moonlight — the goal being a seamless "pick up and play" experience without needing to interact with Moonlight directly
