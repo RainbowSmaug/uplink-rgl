@@ -2,9 +2,6 @@
 *.exe
 *.exe~
 
-# Claude context
-.claude/
-
 # Go build cache / test artifacts
 *.test
 *.out
