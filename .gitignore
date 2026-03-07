@@ -1,0 +1,22 @@
+# Binaries
+*.exe
+*.exe~
+
+# Claude context
+.claude/
+
+# Go build cache / test artifacts
+*.test
+*.out
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
