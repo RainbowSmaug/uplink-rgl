@@ -16,7 +16,7 @@ type manifest struct {
 	AppName           string `json:"AppName"`
 	MainGameAppName   string `json:"MainGameAppName"`
 	VaultThumbnailUrl string `json:"VaultThumbnailUrl"`
-	BIsIncomplete     bool   `json:"bIsIncomplete"`
+	BIsIncomplete     bool   `json:"bIsIncompleteInstall"`
 }
 
 // ParseManifests scans the Epic Games manifests directory and returns installed games.

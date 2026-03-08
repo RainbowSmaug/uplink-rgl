@@ -24,6 +24,16 @@ import (
 )
 
 func main() {
+	// Redirect all output to a log file — windowsgui builds have no console.
+	if logDir, err := os.UserCacheDir(); err == nil {
+		logPath := filepath.Join(logDir, "uplink-rgl", "uplink-host.log")
+		os.MkdirAll(filepath.Dir(logPath), 0755)
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			os.Stdout = f
+			os.Stderr = f
+		}
+	}
+
 	client, creds, err := setup()
 	if err != nil {
 		fmt.Println(err)

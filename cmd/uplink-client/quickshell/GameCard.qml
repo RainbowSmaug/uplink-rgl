@@ -11,6 +11,7 @@ Item {
     property string uuid:      ""
     property string name:      ""
     property string coverPath: ""  // local file path from Go cover cache
+    property string launcher:  ""  // "steam", "epic", etc.
 
     // Distance from the focused card (0 = focused, 1 = adjacent, 2+ = far)
     readonly property int dist: Math.abs(index - ListView.view.currentIndex)
@@ -88,6 +89,17 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
         }
+    }
+
+    // Launcher watermark — bottom-right corner, ~35% opacity
+    Image {
+        visible: launcher !== ""
+        source: launcher !== "" ? Qt.resolvedUrl("launcher_" + launcher + ".png") : ""
+        width: 36; height: 36
+        anchors { right: parent.right; top: parent.top; margins: 10 }
+        opacity: 0.35
+        smooth: true
+        z: 2
     }
 
     MouseArea {

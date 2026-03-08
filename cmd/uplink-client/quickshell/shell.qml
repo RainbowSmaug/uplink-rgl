@@ -356,6 +356,7 @@ ShellRoot {
                         uuid:      gameData ? gameData.uuid      : ""
                         name:      gameData ? gameData.name      : ""
                         coverPath: gameData ? (gameData.coverPath ?? "") : ""
+                        launcher:  gameData ? (gameData.launcher  ?? "") : ""
 
                         width: myDist === 0 ? carousel.focusedWidth
                              : myDist === 1 ? carousel.sideWidth

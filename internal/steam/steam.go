@@ -19,6 +19,7 @@ func FindSteamLibraries() ([]string, error) {
 		return nil, err
 	}
 
+	seen := map[string]bool{strings.ToLower(defaultPath): true}
 	dirs := []string{defaultPath}
 
 	// Parse libraryfolders.vdf for additional library paths.
@@ -27,7 +28,11 @@ func FindSteamLibraries() ([]string, error) {
 	if err == nil {
 		for _, extra := range parseLibraryFolders(string(data)) {
 			p := filepath.Join(extra, "steamapps")
+			if seen[strings.ToLower(p)] {
+				continue
+			}
 			if _, err := os.Stat(p); err == nil {
+				seen[strings.ToLower(p)] = true
 				dirs = append(dirs, p)
 			}
 		}

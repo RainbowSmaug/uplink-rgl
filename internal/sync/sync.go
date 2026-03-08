@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -53,6 +54,13 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 
 	fmt.Println("Fetching existing Apollo apps...")
 	existingApps, err := apolloClient.GetApps()
+	if errors.Is(err, apollo.ErrUnauthorized) {
+		fmt.Println("Session expired, re-authenticating...")
+		if err2 := apolloClient.Login(); err2 != nil {
+			return fmt.Errorf("re-authentication failed: %w", err2)
+		}
+		existingApps, err = apolloClient.GetApps()
+	}
 	if err != nil {
 		return fmt.Errorf("failed to get Apollo apps: %w", err)
 	}
