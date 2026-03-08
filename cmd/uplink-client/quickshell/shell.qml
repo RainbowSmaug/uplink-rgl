@@ -192,6 +192,25 @@ ShellRoot {
 
         // ─── Layout ───────────────────────────────────────────────────────────
 
+        // Cinematic bars — semi-transparent dark overlay on top/bottom 20%
+        Rectangle {
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: win.stripY
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.80) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.0)  }
+            }
+        }
+
+        Rectangle {
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: win.stripY
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.0)  }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.80) }
+            }
+        }
+
         // Strip layout container
         Item {
             id: strip
