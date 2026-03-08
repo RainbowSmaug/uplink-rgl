@@ -22,6 +22,7 @@ import (
 
 	"github.com/rainbowsmaug/uplink-rgl/internal/apollo"
 	"github.com/rainbowsmaug/uplink-rgl/internal/credentials"
+	"github.com/rainbowsmaug/uplink-rgl/internal/epic"
 	"github.com/rainbowsmaug/uplink-rgl/internal/steam"
 )
 
@@ -33,6 +34,7 @@ type GameData struct {
 	UUID      string `json:"uuid"`
 	Name      string `json:"name"`
 	SteamID   string `json:"steamID"`
+	Launcher  string `json:"launcher,omitempty"`  // "steam", "epic", etc. — empty for non-game entries
 	ImageName string `json:"imageName,omitempty"` // basename of Apollo's image-path
 	CoverPath string `json:"coverPath,omitempty"` // absolute path to locally cached cover PNG
 }
@@ -182,8 +184,12 @@ func appsToGames(apps []apollo.App) []GameData {
 		g.ImageName = imageBasename(app.ImageURL)
 		if m := steamIDRe.FindStringSubmatch(app.ImageURL); m != nil {
 			g.SteamID = m[1]
+			g.Launcher = "steam"
 		} else if id := steam.IDFromCmd(app.Cmd); id != "" {
 			g.SteamID = id
+			g.Launcher = "steam"
+		} else if epic.IDFromCmd(app.Cmd) != "" {
+			g.Launcher = "epic"
 		}
 		games = append(games, g)
 	}

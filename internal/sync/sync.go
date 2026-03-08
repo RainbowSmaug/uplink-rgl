@@ -2,7 +2,8 @@ package sync
 
 import (
 	"fmt"
-	"image/jpeg"
+	"image"
+	_ "image/jpeg"
 	"image/png"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/rainbowsmaug/uplink-rgl/internal/apollo"
+	"github.com/rainbowsmaug/uplink-rgl/internal/epic"
 	"github.com/rainbowsmaug/uplink-rgl/internal/library"
 	"github.com/rainbowsmaug/uplink-rgl/internal/steam"
 )
@@ -20,17 +22,33 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 	for _, id := range excluded {
 		excludedIDs[id] = true
 	}
+
+	// ── Parse Steam ───────────────────────────────────────────────────────────
 	fmt.Println("Finding Steam libraries...")
 	steamPaths, err := steam.FindSteamLibraries()
 	if err != nil {
-		return fmt.Errorf("failed to find Steam library: %w", err)
+		fmt.Println("Warning: Steam library not found:", err)
 	}
 	fmt.Printf("Found %d Steam library location(s)\n", len(steamPaths))
 
-	fmt.Println("Parsing Steam games...")
-	games, err := steam.ParseACFFiles(steamPaths...)
+	var games []library.Game
+	if len(steamPaths) > 0 {
+		fmt.Println("Parsing Steam games...")
+		steamGames, err := steam.ParseACFFiles(steamPaths...)
+		if err != nil {
+			fmt.Println("Warning: failed to parse Steam games:", err)
+		}
+		games = append(games, steamGames...)
+	}
+
+	// ── Parse Epic ────────────────────────────────────────────────────────────
+	fmt.Println("Parsing Epic Games library...")
+	epicGames, err := epic.ParseManifests(epic.DefaultManifestsDir)
 	if err != nil {
-		return fmt.Errorf("failed to parse Steam games: %w", err)
+		fmt.Println("Warning: Epic Games library not found:", err)
+	} else {
+		fmt.Printf("Found %d Epic game(s)\n", len(epicGames))
+		games = append(games, epicGames...)
 	}
 
 	fmt.Println("Fetching existing Apollo apps...")
@@ -47,32 +65,53 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 		existing[app.Name] = true
 	}
 
-	// Build lookup maps for the cover backfill pass and uninstall detection.
-	steamByName := make(map[string]library.Game)
+	// Build lookup maps for backfill and uninstall detection.
+	gamesByName := make(map[string]library.Game)
 	steamIDs := make(map[string]bool)
+	epicIDs := make(map[string]bool)
 	for _, game := range games {
-		steamByName[game.Name] = game
-		steamIDs[game.ID] = true
+		gamesByName[game.Name] = game
+		switch game.Source {
+		case "steam":
+			steamIDs[game.ID] = true
+		case "epic":
+			epicIDs[game.ID] = true
+		}
 	}
 
 	removed := 0
 
 	// Remove Apollo apps that are excluded or no longer installed.
 	for _, app := range existingApps {
-		id := steam.IDFromCmd(app.Cmd)
-		if id == "" || (!excludedIDs[id] && steamIDs[id]) {
-			continue
+		if steamID := steam.IDFromCmd(app.Cmd); steamID != "" {
+			if !excludedIDs[steamID] && steamIDs[steamID] {
+				continue // still installed, not excluded
+			}
+			reason := "excluded"
+			if !excludedIDs[steamID] {
+				reason = "uninstalled"
+			}
+			if err := apolloClient.DeleteApp(app.UUID); err != nil {
+				fmt.Printf("Failed to remove %s app %s: %v\n", reason, app.Name, err)
+				continue
+			}
+			fmt.Printf("Removed %s game: %s\n", reason, app.Name)
+			removed++
+		} else if epicID := epic.IDFromCmd(app.Cmd); epicID != "" {
+			if !excludedIDs[epicID] && epicIDs[epicID] {
+				continue
+			}
+			reason := "excluded"
+			if !excludedIDs[epicID] {
+				reason = "uninstalled"
+			}
+			if err := apolloClient.DeleteApp(app.UUID); err != nil {
+				fmt.Printf("Failed to remove %s app %s: %v\n", reason, app.Name, err)
+				continue
+			}
+			fmt.Printf("Removed %s game: %s\n", reason, app.Name)
+			removed++
 		}
-		reason := "excluded"
-		if !excludedIDs[id] {
-			reason = "uninstalled"
-		}
-		if err := apolloClient.DeleteApp(app.UUID); err != nil {
-			fmt.Printf("Failed to remove %s app %s: %v\n", reason, app.Name, err)
-			continue
-		}
-		fmt.Printf("Removed %s game: %s\n", reason, app.Name)
-		removed++
 	}
 
 	added := 0
@@ -86,16 +125,25 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 			continue
 		}
 
-		coverPath, err := downloadCover(game.ID, game.CoverURL, coversDir)
+		coverFile := game.Source + "_" + game.ID + ".png"
+		coverPath, err := downloadCover(coverFile, game.CoverURL, coversDir)
 		if err != nil {
 			fmt.Printf("Warning: could not download cover for %s: %v\n", game.Name, err)
 			coverPath = ""
 		}
 
+		var cmd string
+		switch game.Source {
+		case "steam":
+			cmd = "steam://rungameid/" + game.ID
+		case "epic":
+			cmd = "com.epicgames.launcher://apps/" + game.ID + "?action=launch&silent=true"
+		}
+
 		app := apollo.App{
 			Name:     game.Name,
 			ImageURL: coverPath,
-			Cmd:      "steam://rungameid/" + game.ID,
+			Cmd:      cmd,
 		}
 
 		if err := apolloClient.AddApp(app); err != nil {
@@ -111,19 +159,20 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 	fmt.Println("Checking for missing covers...")
 	backfilled := 0
 	for _, apolloApp := range existingApps {
-		// Skip apps that already have a local cover file that exists on disk.
+		// Skip apps that already have a local cover file on disk.
 		if apolloApp.ImageURL != "" && !strings.HasPrefix(apolloApp.ImageURL, "http") {
 			if _, err := os.Stat(apolloApp.ImageURL); err == nil {
 				continue
 			}
 		}
 
-		steamGame, ok := steamByName[apolloApp.Name]
+		game, ok := gamesByName[apolloApp.Name]
 		if !ok {
 			continue
 		}
 
-		localPath, err := downloadCover(steamGame.ID, steamGame.CoverURL, coversDir)
+		coverFile := game.Source + "_" + game.ID + ".png"
+		localPath, err := downloadCover(coverFile, game.CoverURL, coversDir)
 		if err != nil {
 			fmt.Printf("Warning: could not download cover for %s: %v\n", apolloApp.Name, err)
 			continue
@@ -188,7 +237,10 @@ func fixStateFile(path string) error {
 	return os.WriteFile(path, []byte(fixed), 0644)
 }
 
-func downloadCover(appID, imageURL, coversDir string) (string, error) {
+func downloadCover(coverFile, imageURL, coversDir string) (string, error) {
+	if imageURL == "" {
+		return "", fmt.Errorf("no cover URL")
+	}
 	if err := os.MkdirAll(coversDir, 0755); err != nil {
 		return "", fmt.Errorf("creating covers directory: %w", err)
 	}
@@ -203,12 +255,12 @@ func downloadCover(appID, imageURL, coversDir string) (string, error) {
 		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	img, err := jpeg.Decode(resp.Body)
+	img, _, err := image.Decode(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("decoding cover image: %w", err)
 	}
 
-	localPath := filepath.Join(coversDir, "steam_"+appID+".png")
+	localPath := filepath.Join(coversDir, coverFile)
 	tmp := localPath + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {

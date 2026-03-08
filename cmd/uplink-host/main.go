@@ -16,6 +16,7 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/rainbowsmaug/uplink-rgl/internal/apollo"
 	"github.com/rainbowsmaug/uplink-rgl/internal/credentials"
+	"github.com/rainbowsmaug/uplink-rgl/internal/epic"
 	"github.com/rainbowsmaug/uplink-rgl/internal/icon"
 	"github.com/rainbowsmaug/uplink-rgl/internal/steam"
 	uplinkSync "github.com/rainbowsmaug/uplink-rgl/internal/sync"
@@ -190,6 +191,19 @@ func buildWatchSources() ([]watcher.Source, error) {
 				return strings.EqualFold(filepath.Ext(name), ".acf")
 			},
 		})
+	}
+
+	// Epic Games — watch manifests directory for .item file changes.
+	if _, err := os.Stat(epic.DefaultManifestsDir); err == nil {
+		sources = append(sources, watcher.Source{
+			Name: "Epic",
+			Dirs: []string{epic.DefaultManifestsDir},
+			Filter: func(name string) bool {
+				return strings.EqualFold(filepath.Ext(name), ".item")
+			},
+		})
+	} else {
+		fmt.Println("Warning: Epic Games manifests not found, Epic watching disabled")
 	}
 
 	if len(sources) == 0 {
