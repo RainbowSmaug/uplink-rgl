@@ -25,14 +25,12 @@ func Run(sources []Source, debounce time.Duration, onChange func()) error {
 	}
 	defer w.Close()
 
-	dirSource := make(map[string]string)
 	for _, src := range sources {
 		for _, dir := range src.Dirs {
 			if err := w.Add(dir); err != nil {
 				fmt.Printf("Warning: could not watch %s (%s): %v\n", dir, src.Name, err)
 				continue
 			}
-			dirSource[dir] = src.Name
 			fmt.Printf("Watching %s: %s\n", src.Name, dir)
 		}
 	}

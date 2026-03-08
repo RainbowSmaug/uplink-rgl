@@ -6,7 +6,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -27,14 +29,42 @@ func main() {
 		os.Exit(1)
 	}
 
+	go startCoversServer(client)
+
 	doSync := func() {
 		if err := uplinkSync.SyncLibrary(client, creds.Excluded); err != nil {
 			fmt.Println("Sync failed:", err)
 		}
 	}
 
+	manageExclusions := func() {
+		apps, err := client.GetApps()
+		if err != nil {
+			fmt.Println("Could not fetch apps for exclusion management:", err)
+			return
+		}
+		var games []credentials.ExclusionGame
+		for _, app := range apps {
+			id := steam.IDFromCmd(app.Cmd)
+			if id == "" {
+				continue
+			}
+			games = append(games, credentials.ExclusionGame{ID: id, Name: app.Name})
+		}
+		newExcluded, err := credentials.PromptExclusions(games, creds.Excluded)
+		if err != nil {
+			fmt.Println("Exclusion management failed:", err)
+			return
+		}
+		creds.Excluded = newExcluded
+		if err := credentials.Save(creds); err != nil {
+			fmt.Println("Warning: could not save exclusions:", err)
+		}
+		go doSync()
+	}
+
 	systray.Run(
-		func() { onReady(doSync) },
+		func() { onReady(doSync, manageExclusions) },
 		func() {},
 	)
 }
@@ -63,11 +93,12 @@ func setup() (*apollo.Client, *credentials.Credentials, error) {
 	return client, creds, nil
 }
 
-func onReady(doSync func()) {
+func onReady(doSync func(), manageExclusions func()) {
 	systray.SetIcon(icon.ICO())
 	systray.SetTooltip("Uplink RGL")
 
 	mSync := systray.AddMenuItem("Sync Now", "Sync Steam library now")
+	mExclusions := systray.AddMenuItem("Manage Exclusions", "Choose which games to hide from Moonlight")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Stop Uplink RGL")
 
@@ -93,12 +124,54 @@ func onReady(doSync func()) {
 			select {
 			case <-mSync.ClickedCh:
 				go doSync()
+			case <-mExclusions.ClickedCh:
+				go manageExclusions()
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
 			}
 		}
 	}()
+}
+
+// startCoversServer serves the Apollo covers directory over plain HTTP on port
+// 47991, automatically adding a Windows Firewall inbound rule on first run.
+func startCoversServer(client *apollo.Client) {
+	ensureCoversFirewallRule()
+
+	coversDir := `C:\Program Files\Apollo\config\covers`
+	if apps, err := client.GetApps(); err == nil {
+		coversDir = uplinkSync.DetectCoversDir(apps)
+	}
+	fmt.Println("Serving covers on :47991 from", coversDir)
+	if err := http.ListenAndServe(":47991", http.FileServer(http.Dir(coversDir))); err != nil {
+		fmt.Println("covers server error:", err)
+	}
+}
+
+// ensureCoversFirewallRule adds a Windows Firewall inbound rule for port 47991
+// if one doesn't already exist. Elevation is handled via a UAC prompt (once).
+func ensureCoversFirewallRule() {
+	const ruleName = "Uplink RGL Covers"
+
+	// Read-only check — no elevation needed.
+	out, _ := exec.Command("netsh", "advfirewall", "firewall", "show", "rule",
+		"name="+ruleName).Output()
+	if strings.Contains(string(out), ruleName) {
+		return // already present
+	}
+
+	// Rule missing — add it via an elevated netsh call. PowerShell's
+	// Start-Process -Verb RunAs triggers a one-time UAC prompt.
+	fmt.Println("Adding firewall rule for covers server (one-time UAC prompt)...")
+	err := exec.Command("powershell", "-Command",
+		`Start-Process -FilePath netsh `+
+			`-ArgumentList 'advfirewall firewall add rule name="`+ruleName+`" protocol=TCP dir=in localport=47991 action=allow' `+
+			`-Verb RunAs -Wait`,
+	).Run()
+	if err != nil {
+		fmt.Println("Warning: could not add firewall rule:", err)
+	}
 }
 
 // buildWatchSources returns a watcher.Source for each supported launcher.

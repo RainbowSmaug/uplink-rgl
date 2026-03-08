@@ -36,15 +36,14 @@ func FindSteamLibraries() ([]string, error) {
 	return dirs, nil
 }
 
-// FindSteamLibrary returns the default Steam library path.
-// Kept for backward compatibility with the watcher setup in main.go.
-func FindSteamLibrary() (string, error) {
-	programFiles := os.Getenv("PROGRAMFILES(X86)")
-	path := filepath.Join(programFiles, "Steam", "steamapps")
-	if _, err := os.Stat(path); err != nil {
-		return "", err
+// IDFromCmd extracts the Steam App ID from a steam://rungameid/<id> command string.
+// Returns an empty string if the command is not a Steam launch URL.
+func IDFromCmd(cmd string) string {
+	const prefix = "steam://rungameid/"
+	if !strings.HasPrefix(cmd, prefix) {
+		return ""
 	}
-	return path, nil
+	return cmd[len(prefix):]
 }
 
 // parseLibraryFolders extracts additional Steam library paths from libraryfolders.vdf.

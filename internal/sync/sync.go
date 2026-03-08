@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/rainbowsmaug/uplink-rgl/internal/apollo"
@@ -38,7 +39,7 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 		return fmt.Errorf("failed to get Apollo apps: %w", err)
 	}
 
-	coversDir := detectCoversDir(existingApps)
+	coversDir := DetectCoversDir(existingApps)
 	fmt.Printf("Using covers directory: %s\n", coversDir)
 
 	existing := make(map[string]bool)
@@ -56,31 +57,21 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 
 	removed := 0
 
-	// Remove any existing Apollo apps whose Steam App ID is now excluded.
+	// Remove Apollo apps that are excluded or no longer installed.
 	for _, app := range existingApps {
-		id := steamIDFromCmd(app.Cmd)
-		if id == "" || !excludedIDs[id] {
+		id := steam.IDFromCmd(app.Cmd)
+		if id == "" || (!excludedIDs[id] && steamIDs[id]) {
 			continue
+		}
+		reason := "excluded"
+		if !excludedIDs[id] {
+			reason = "uninstalled"
 		}
 		if err := apolloClient.DeleteApp(app.UUID); err != nil {
-			fmt.Printf("Failed to remove excluded app %s: %v\n", app.Name, err)
+			fmt.Printf("Failed to remove %s app %s: %v\n", reason, app.Name, err)
 			continue
 		}
-		fmt.Printf("Removed excluded app: %s\n", app.Name)
-		removed++
-	}
-
-	// Remove any existing Apollo apps for Steam games that are no longer installed.
-	for _, app := range existingApps {
-		id := steamIDFromCmd(app.Cmd)
-		if id == "" || excludedIDs[id] || steamIDs[id] {
-			continue
-		}
-		if err := apolloClient.DeleteApp(app.UUID); err != nil {
-			fmt.Printf("Failed to remove uninstalled app %s: %v\n", app.Name, err)
-			continue
-		}
-		fmt.Printf("Removed uninstalled game: %s\n", app.Name)
+		fmt.Printf("Removed %s game: %s\n", reason, app.Name)
 		removed++
 	}
 
@@ -120,9 +111,11 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 	fmt.Println("Checking for missing covers...")
 	backfilled := 0
 	for _, apolloApp := range existingApps {
-		// Skip apps that already have a local cover file
+		// Skip apps that already have a local cover file that exists on disk.
 		if apolloApp.ImageURL != "" && !strings.HasPrefix(apolloApp.ImageURL, "http") {
-			continue
+			if _, err := os.Stat(apolloApp.ImageURL); err == nil {
+				continue
+			}
 		}
 
 		steamGame, ok := steamByName[apolloApp.Name]
@@ -159,9 +152,9 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 	return nil
 }
 
-// detectCoversDir scans existing apps for a local cover path to determine
+// DetectCoversDir scans existing apps for a local cover path to determine
 // where Apollo stores its covers. Falls back to the default Apollo install path.
-func detectCoversDir(apps []apollo.App) string {
+func DetectCoversDir(apps []apollo.App) string {
 	for _, app := range apps {
 		p := app.ImageURL
 		if p == "" || strings.HasPrefix(p, "http") || !strings.ContainsAny(p, `/\`) {
@@ -175,14 +168,9 @@ func detectCoversDir(apps []apollo.App) string {
 	return `C:\Program Files\Apollo\config\covers`
 }
 
-// steamIDFromCmd extracts the Steam App ID from a steam://rungameid/<id> command.
-func steamIDFromCmd(cmd string) string {
-	const prefix = "steam://rungameid/"
-	if !strings.HasPrefix(cmd, prefix) {
-		return ""
-	}
-	return cmd[len(prefix):]
-}
+// boolStringRe matches Apollo's broken boolean-as-string fields so fixStateFile
+// can correct them in a single pass regardless of which fields are affected.
+var boolStringRe = regexp.MustCompile(`"(allow_client_commands|always_use_virtual_display|enable_legacy_ordering)": "(true|false)"`)
 
 // fixStateFile corrects Apollo's sunshine_state.json after API calls cause it
 // to serialize boolean fields as strings, which crashes Apollo on restart.
@@ -192,22 +180,9 @@ func fixStateFile(path string) error {
 		return err
 	}
 
-	fixed := string(data)
-	replacements := [][2]string{
-		{`"allow_client_commands": "true"`, `"allow_client_commands": true`},
-		{`"allow_client_commands": "false"`, `"allow_client_commands": false`},
-		{`"always_use_virtual_display": "true"`, `"always_use_virtual_display": true`},
-		{`"always_use_virtual_display": "false"`, `"always_use_virtual_display": false`},
-		{`"enable_legacy_ordering": "true"`, `"enable_legacy_ordering": true`},
-		{`"enable_legacy_ordering": "false"`, `"enable_legacy_ordering": false`},
-	}
-
-	for _, r := range replacements {
-		fixed = strings.ReplaceAll(fixed, r[0], r[1])
-	}
-
+	fixed := boolStringRe.ReplaceAllString(string(data), `"$1": $2`)
 	if fixed == string(data) {
-		return nil // nothing to fix
+		return nil
 	}
 
 	return os.WriteFile(path, []byte(fixed), 0644)
@@ -234,14 +209,22 @@ func downloadCover(appID, imageURL, coversDir string) (string, error) {
 	}
 
 	localPath := filepath.Join(coversDir, "steam_"+appID+".png")
-	f, err := os.Create(localPath)
+	tmp := localPath + ".tmp"
+	f, err := os.Create(tmp)
 	if err != nil {
 		return "", fmt.Errorf("creating cover file: %w", err)
 	}
-	defer f.Close()
 
 	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		os.Remove(tmp)
 		return "", fmt.Errorf("encoding cover as png: %w", err)
+	}
+	f.Close()
+
+	if err := os.Rename(tmp, localPath); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("renaming cover file: %w", err)
 	}
 
 	return localPath, nil
