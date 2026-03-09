@@ -153,7 +153,7 @@ func (c *Client) AddApp(app App) error    { return c.postApp(app) }
 func (c *Client) UpdateApp(app App) error { return c.postApp(app) }
 
 // postApp POSTs an app to /api/apps. Apollo uses UUID presence to distinguish
-// create (no UUID) from update (UUID present).
+// create (no UUID) from update (UUID present). Re-authenticates once on 401.
 func (c *Client) postApp(app App) error {
 	body, err := json.Marshal(app)
 	if err != nil {
@@ -171,6 +171,27 @@ func (c *Client) postApp(app App) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		if err := c.Login(); err != nil {
+			return fmt.Errorf("re-authentication failed: %w", err)
+		}
+		body2, _ := json.Marshal(app)
+		req2, err := http.NewRequest("POST", c.BaseURL+"/api/apps", bytes.NewBuffer(body2))
+		if err != nil {
+			return err
+		}
+		req2.Header.Set("Content-Type", "application/json")
+		resp2, err := c.httpClient.Do(req2)
+		if err != nil {
+			return err
+		}
+		defer resp2.Body.Close()
+		if resp2.StatusCode != http.StatusOK {
+			return fmt.Errorf("unexpected status: %d", resp2.StatusCode)
+		}
+		return nil
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
@@ -196,6 +217,29 @@ func (c *Client) DeleteApp(uuid string) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		resp.Body.Close()
+		if err := c.Login(); err != nil {
+			return fmt.Errorf("re-authentication failed: %w", err)
+		}
+		body2, _ := json.Marshal(map[string]string{"uuid": uuid})
+		req2, err := http.NewRequest("POST", c.BaseURL+"/api/apps/delete", bytes.NewBuffer(body2))
+		if err != nil {
+			return err
+		}
+		req2.Header.Set("Content-Type", "application/json")
+		resp2, err := c.httpClient.Do(req2)
+		if err != nil {
+			return err
+		}
+		defer resp2.Body.Close()
+		raw2, _ := io.ReadAll(resp2.Body)
+		if resp2.StatusCode != http.StatusOK {
+			return fmt.Errorf("status %d: %s", resp2.StatusCode, string(raw2))
+		}
+		return nil
+	}
 
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {

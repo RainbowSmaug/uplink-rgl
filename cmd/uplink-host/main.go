@@ -150,7 +150,7 @@ func onReady(doSync func(), manageExclusions func()) {
 func startCoversServer(client *apollo.Client) {
 	ensureCoversFirewallRule()
 
-	coversDir := `C:\Program Files\Apollo\config\covers`
+	coversDir := uplinkSync.DefaultCoversDir
 	if apps, err := client.GetApps(); err == nil {
 		coversDir = uplinkSync.DetectCoversDir(apps)
 	}

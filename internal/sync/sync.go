@@ -18,6 +18,14 @@ import (
 	"github.com/rainbowsmaug/uplink-rgl/internal/steam"
 )
 
+// DefaultCoversDir is the fallback covers directory in a default Apollo install.
+const DefaultCoversDir = `C:\Program Files\Apollo\config\covers`
+
+// coverFilename returns the standard filename for a game's cover PNG.
+func coverFilename(game library.Game) string {
+	return game.Source + "_" + game.ID + ".png"
+}
+
 func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 	excludedIDs := make(map[string]bool, len(excluded))
 	for _, id := range excluded {
@@ -133,7 +141,7 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 			continue
 		}
 
-		coverFile := game.Source + "_" + game.ID + ".png"
+		coverFile := coverFilename(game)
 		coverPath, err := downloadCover(coverFile, game.CoverURL, coversDir)
 		if err != nil {
 			fmt.Printf("Warning: could not download cover for %s: %v\n", game.Name, err)
@@ -179,7 +187,7 @@ func SyncLibrary(apolloClient *apollo.Client, excluded []string) error {
 			continue
 		}
 
-		coverFile := game.Source + "_" + game.ID + ".png"
+		coverFile := coverFilename(game)
 		localPath, err := downloadCover(coverFile, game.CoverURL, coversDir)
 		if err != nil {
 			fmt.Printf("Warning: could not download cover for %s: %v\n", apolloApp.Name, err)
@@ -222,7 +230,7 @@ func DetectCoversDir(apps []apollo.App) string {
 			return p[:idx]
 		}
 	}
-	return `C:\Program Files\Apollo\config\covers`
+	return DefaultCoversDir
 }
 
 // boolStringRe matches Apollo's broken boolean-as-string fields so fixStateFile
