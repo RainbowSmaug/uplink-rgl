@@ -111,6 +111,8 @@ func onReady(doSync func(), manageExclusions func()) {
 	mSync := systray.AddMenuItem("Sync Now", "Sync Steam library now")
 	mExclusions := systray.AddMenuItem("Manage Exclusions", "Choose which games to hide from Moonlight")
 	systray.AddSeparator()
+	mAutoStart := systray.AddMenuItem(autoStartLabel(), "Start Uplink RGL automatically on login")
+	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Stop Uplink RGL")
 
 	// Background: initial sync then watch for library changes.
@@ -137,6 +139,13 @@ func onReady(doSync func(), manageExclusions func()) {
 				go doSync()
 			case <-mExclusions.ClickedCh:
 				go manageExclusions()
+			case <-mAutoStart.ClickedCh:
+				if autoStartEnabled() {
+					disableAutoStart()
+				} else {
+					enableAutoStart()
+				}
+				mAutoStart.SetTitle(autoStartLabel())
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
